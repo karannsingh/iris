@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libcurl4-openssl-dev \
     libssl-dev \
+    git \  # Install git to allow fetching from repositories
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
@@ -27,7 +28,7 @@ COPY . /app
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Download model file if it doesn't exist
+# Download model file if it doesn't exist (Assuming your app has the download_model function)
 RUN python -c "import app; app.download_model()"
 
 # Expose port 8000 to the outside world
