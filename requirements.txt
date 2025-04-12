@@ -6,3 +6,4 @@ face-recognition
 requests
 pymysql
 Pillow
+git+https://github.com/ageitgey/face_recognition_models
