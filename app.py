@@ -10,14 +10,15 @@ from PIL import Image
 import io
 import os
 import requests
+import urllib.request
 
 allowed_origins = ["https://sarthii.co.in"]
 
 app = Flask(__name__)
 CORS(app, origins=allowed_origins)
 
-# Auto-download model if not exists
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1cJaW1v_8vWXSeia97_3a5MWWMkIutzNE"
+# Model download URL and path
+MODEL_URL = "https://github.com/ageitgey/face_recognition_models/releases/download/v0.1/shape_predictor_68_face_landmarks.dat"
 MODEL_NAME = "shape_predictor_68_face_landmarks.dat"
 MODEL_PATH = os.path.join(os.path.dirname(__file__), MODEL_NAME)
 
@@ -25,10 +26,8 @@ def download_model():
     """Download the pre-trained model if not already present."""
     if not os.path.exists(MODEL_PATH):
         print(f"Downloading {MODEL_NAME}...")
-        response = requests.get(MODEL_URL, stream=True)
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        # Downloading the model from GitHub
+        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
         print("Model downloaded.")
     else:
         print("Model already exists.")
@@ -42,7 +41,6 @@ predictor = dlib.shape_predictor(MODEL_PATH)
 
 # Thresholds
 EAR_THRESHOLD = 0.3
-FRAME_COUNT = 3
 FACE_MATCH_THRESHOLD = 0.45
 
 # Calculate Eye Aspect Ratio (EAR)
@@ -74,7 +72,7 @@ def extract_face_encoding(image):
         return None
     return face_encodings[0]
 
-# Extract Iris Features
+# Extract Iris Features (and perform blink detection)
 def extract_iris_features(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = detector(gray)
