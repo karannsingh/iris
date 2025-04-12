@@ -9,6 +9,7 @@ import base64
 from PIL import Image
 import io
 import os
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -18,20 +19,24 @@ MODEL_URL = "https://drive.google.com/uc?export=download&id=1cJaW1v_8vWXSeia97_3
 MODEL_NAME = "shape_predictor_68_face_landmarks.dat"
 MODEL_PATH = os.path.join(os.path.dirname(__file__), MODEL_NAME)
 
-if not os.path.exists(MODEL_PATH):
-    print(f"Downloading {MODEL_NAME}...")
-    response = requests.get(MODEL_URL, stream=True)
-    with open(MODEL_PATH, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-    print("Model downloaded.")
+def download_model():
+    """Download the pre-trained model if not already present."""
+    if not os.path.exists(MODEL_PATH):
+        print(f"Downloading {MODEL_NAME}...")
+        response = requests.get(MODEL_URL, stream=True)
+        with open(MODEL_PATH, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        print("Model downloaded.")
+    else:
+        print("Model already exists.")
+
+# Call download_model() when the app starts
+download_model()
 
 # Load dlib models
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor(MODEL_PATH)
-# detector = dlib.get_frontal_face_detector()
-# predictor_path = os.path.join(os.path.dirname(__file__), "shape_predictor_68_face_landmarks.dat")
-# predictor = dlib.shape_predictor(predictor_path)
 
 # Thresholds
 EAR_THRESHOLD = 0.3
