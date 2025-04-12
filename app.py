@@ -11,8 +11,10 @@ import io
 import os
 import requests
 
+allowed_origins = ["https://sarthii.co.in"]
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=allowed_origins)
 
 # Auto-download model if not exists
 MODEL_URL = "https://drive.google.com/uc?export=download&id=1cJaW1v_8vWXSeia97_3a5MWWMkIutzNE"
