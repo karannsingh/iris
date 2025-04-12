@@ -6,3 +6,4 @@ face-recognition
 requests
 pymysql
 Pillow
+face_recognition_models
