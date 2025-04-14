@@ -11,7 +11,13 @@ import io
 import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["https://sarthii.co.in", "http://localhost:8080"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Load dlib models
 detector = dlib.get_frontal_face_detector()
