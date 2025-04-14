@@ -9,42 +9,27 @@ import base64
 from PIL import Image
 import io
 import os
-import requests
-import urllib.request
-
-allowed_origins = ["https://sarthii.co.in"]
 
 app = Flask(__name__)
-CORS(app, origins=allowed_origins)
-
-# Auto-download model if not exists
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1cJaW1v_8vWXSeia97_3a5MWWMkIutzNE"
-MODEL_NAME = "shape_predictor_68_face_landmarks.dat"
-MODEL_PATH = os.path.join(os.path.dirname(__file__), MODEL_NAME)
-
-def download_model():
-    """Download the pre-trained model if not already present."""
-    if not os.path.exists(MODEL_PATH):
-        print(f"Downloading {MODEL_NAME}...")
-        response = requests.get(MODEL_URL, stream=True)
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print("Model downloaded.")
-    else:
-        print("Model already exists.")
-
-# Call download_model() when the app starts
-download_model()
+CORS(app)
 
 # Load dlib models
 detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor(MODEL_PATH)
+predictor_path = os.path.join(os.path.dirname(__file__), "shape_predictor_68_face_landmarks.dat")
+predictor = dlib.shape_predictor(predictor_path)
 
 # Thresholds
 EAR_THRESHOLD = 0.3
 FRAME_COUNT = 3
 FACE_MATCH_THRESHOLD = 0.45
+
+# Database Connection
+def get_mysql_connection():
+    try:
+        return pymysql.connect(host='localhost', user='root', password='', database='insurance')
+    except Exception as e:
+        print(f"Database Connection Error: {e}")
+        return None
 
 # Calculate Eye Aspect Ratio (EAR)
 def calculate_ear(eye_points):
@@ -96,6 +81,165 @@ def extract_iris_features(image):
         return iris_features, blink_detected
 
     return None, False
+
+# Save Face Data to Database
+def save_face_to_db(employee_id, name, email, phone, face_encoding):
+    encoding_str = ','.join(map(str, face_encoding))
+    conn = get_mysql_connection()
+    if not conn:
+        return False
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO users (UserOID, UserName, Email, Number, iris_data) VALUES (%s, %s, %s, %s, %s)",
+                       (employee_id, name, email, phone, encoding_str))
+        conn.commit()
+        return True
+    except Exception as e:
+        print("Database Error:", e)
+        return False
+    finally:
+        conn.close()
+
+# Routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/register_page')
+def register_page():
+    return render_template('register.html')
+
+@app.route('/verify_page')
+def verify_page():
+    return render_template('verify.html')
+
+# Registration Route
+@app.route('/register', methods=['POST'])
+def register():
+    try:
+        data = request.get_json()
+        image_data = data.get('image', '').split(',')[1]
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip()
+        phone = data.get('phone', '').strip()
+        employee_id = data.get('employee_id', '').strip()
+
+        if not all([image_data, name, email, phone, employee_id]):
+            return jsonify({"status": "error", "message": "Missing data. Please fill all fields."})
+
+        # Decode image
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(image_bytes))
+        image = np.array(image.convert('RGB'))
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Extract face encoding
+        face_encoding = extract_face_encoding(image)
+        if face_encoding is None:
+            return jsonify({"status": "error", "message": "No face detected. Please try again."})
+
+        # Save to database
+        if save_face_to_db(employee_id, name, email, phone, face_encoding):
+            return jsonify({"status": "success", "message": "Employee registered successfully!"})
+        else:
+            return jsonify({"status": "error", "message": "Failed to register employee."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# Verification Route with Liveness Detection
+@app.route('/verify', methods=['POST'])
+def verify():
+    try:
+        data = request.get_json()
+        image_data = data.get('image', '').split(',')[1]
+        employee_id = data.get('employee_id', '').strip()
+
+        if not image_data or not employee_id:
+            return jsonify({"status": "error", "message": "Missing data. Please provide image and Employee ID."})
+
+        # Decode and convert image
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(image_bytes))
+        image = np.array(image.convert('RGB'))
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Perform iris extraction and liveness detection
+        iris_features, blink_detected = extract_iris_features(image)
+
+        if not blink_detected:
+            return jsonify({"status": "error", "message": "No face detected. Try again."})
+
+        # Extract face encoding
+        captured_encoding = extract_face_encoding(image)
+        if captured_encoding is None:
+            return jsonify({"status": "error", "message": "No face detected. Try again."})
+
+        # Fetch stored iris data
+        conn = get_mysql_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT iris_data FROM users WHERE UserOID = %s", (employee_id,))
+        result = cursor.fetchone()
+
+        if not result:
+            return jsonify({"status": "error", "message": "Employee not found"})
+
+        stored_encoding = np.array([float(x) for x in result[0].split(",")])
+
+        # Perform comparison
+        distance = np.linalg.norm(captured_encoding - stored_encoding)
+
+        if distance < FACE_MATCH_THRESHOLD:
+            return jsonify({"status": "success", "message": "Face Verified!"})
+        else:
+            return jsonify({"status": "error", "message": "Face Mismatch!"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/check_iris', methods=['POST'])
+def check_iris():
+    try:
+        file = request.files['image']
+        employee_id = request.form.get('employee_id')
+
+        if not file or not employee_id:
+            return jsonify({"status": "error", "message": "Missing image or employee ID"})
+
+        # Convert image to OpenCV format
+        image = Image.open(file.stream)
+        image = np.array(image.convert('RGB'))
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        iris_features, blink_detected = extract_iris_features(image)
+
+        if not blink_detected:
+            return jsonify({"status": "error", "message": "Liveness check failed (no blink detected)"})
+
+        captured_encoding = extract_face_encoding(image)
+        if captured_encoding is None:
+            return jsonify({"status": "error", "message": "Face not detected"})
+
+        # Compare with stored data
+        conn = get_mysql_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT iris_data FROM users WHERE UserOID = %s", (employee_id,))
+        result = cursor.fetchone()
+
+        if not result:
+            return jsonify({"status": "error", "message": "User not found"})
+
+        stored_encoding = np.array([float(x) for x in result[0].split(",")])
+        distance = np.linalg.norm(captured_encoding - stored_encoding)
+
+        if distance < FACE_MATCH_THRESHOLD:
+            return jsonify({"status": "success", "message": "Verification successful"})
+        else:
+            return jsonify({"status": "error", "message": "Face mismatch"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+# Add this new route to your app.py
 
 @app.route('/verify_with_stored_data', methods=['POST'])
 def verify_with_stored_data():
