@@ -247,7 +247,7 @@ def check_iris():
 
 # Add this new route to your app.py
 
-@app.route('/verify_with_stored_data', methods=['POST'])
+@app.route('/verify_with_stored_data', methods=['POST', 'OPTIONS'])
 def verify_with_stored_data():
     try:
         data = request.get_json()
